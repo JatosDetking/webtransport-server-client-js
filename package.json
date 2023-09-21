@@ -1,0 +1,12 @@
+{
+    "name": "webtransport-sample-project",
+    "version": "0.0.1",
+    "description": "Socket.IO with WebTransport",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@fails-components/webtransport": "^0.2.2",
+        "http2": "^3.3.7",
+        "socket.io": "^4.7.2"
+    }
+}

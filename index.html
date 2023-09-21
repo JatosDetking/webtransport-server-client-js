@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Socket.IO WebTransport example</title>
+</head>
+
+<body>
+    <p>Status: <span id="status">Disconnected</span></p>
+    <p>Transport: <span id="transport">N/A</span></p>
+    <p>Message: <span id="message">N/A</span></p>
+    <video id="camera" autoplay playsinline muted></video>
+    <audio id="microphone" autoplay muted></audio>
+
+    <label for="roomInput">Enter Room Name:</label>
+    <input id="roomInput" autocomplete="off" />
+    <button onclick="joinRoom()">Join Room</button>
+
+    <hr />
+
+    <div id="chatBox" style="display: none;">
+        <ul id="messages"></ul>
+        <input id="messageInput" autocomplete="off" /><button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let roomName;
+        let username;
+        const imageElements = {};
+        const clientID = Math.random().toString(36).substr(2, 9);
+        const $status = document.getElementById("status");
+        const $transport = document.getElementById("transport");
+        const $message = document.getElementById("message");
+        const socket = io({
+            transportOptions: {
+                webtransport: {
+                    hostname: "127.0.0.1"
+                }
+            }
+        });
+        function joinRoom() {
+            const inputElement = document.getElementById('roomInput');
+            const chatBox = document.getElementById('chatBox');
+            roomName = inputElement.value.trim();
+
+            if (roomName) {
+                socket.emit('joinRoom', roomName);
+                inputElement.disabled = true;
+                chatBox.style.display = 'block';
+            }
+
+            navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            })
+                .then(function (stream) {
+                    const videoElement = document.getElementById('camera');
+                    const audioElement = document.getElementById('microphone');
+
+                    videoElement.srcObject = stream;
+                    audioElement.srcObject = stream;
+
+
+                    videoElement.addEventListener('loadedmetadata', function () {
+                        setInterval(function () {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = videoElement.videoWidth;
+                            canvas.height = videoElement.videoHeight;
+                            const context = canvas.getContext('2d');
+                            context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                            const imageData = canvas.toDataURL('image/jpeg', 0.7);
+                            socket.emit("videoData", { clientID, imageData }, roomName);
+                        }, 1000 / 24);
+                    });
+
+                    audioElement.addEventListener('loadedmetadata', function () {
+                        const audioContext = new AudioContext();
+                        const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+                        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+                        mediaStreamSource.connect(scriptNode);
+                        scriptNode.connect(audioContext.destination);
+                        scriptNode.onaudioprocess = function (audioProcessingEvent) {
+                            const inputBuffer = audioProcessingEvent.inputBuffer;
+                            const audioData = inputBuffer.getChannelData(0);
+                            socket.emit("audioData", { clientID, audioData }, roomName);
+                        };
+                    });
+                })
+                .catch(function (error) {
+                    console.error('cam err:', error);
+                });
+        };
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            if (message) {
+                username = clientID;
+                socket.emit('message', { username, message }, roomName);
+                messageInput.value = '';
+
+            }
+        }
+        socket.on("connect", () => {
+            console.log(`connected with transport ${socket.io.engine.transport.name}`);
+
+            $status.innerText = "Connected";
+            $transport.innerText = socket.io.engine.transport.name;
+
+            socket.io.engine.on("upgrade", (transport) => {
+                console.log(`transport upgraded to ${transport.name}`);
+
+                $transport.innerText = transport.name;
+            });
+        });
+        socket.on('audioData', (data) => {
+
+            if (data.clientID !== clientID) {
+                const audioContext = new AudioContext();
+                const audioBuffer = new Float32Array(data.audioData);
+                const audioBufferSource = audioContext.createBufferSource();
+                const audioBufferObject = audioContext.createBuffer(1, audioBuffer.length, audioContext.sampleRate);
+                audioBufferObject.copyToChannel(audioBuffer, 0);
+                audioBufferSource.buffer = audioBufferObject;
+                audioBufferSource.connect(audioContext.destination);
+                audioBufferSource.start();
+            }
+        });
+        socket.on('message', ({ username, message }) => {
+            const messages = document.getElementById('messages');
+            const li = document.createElement('li');
+            li.textContent = `${username}: ${message}`;
+            messages.appendChild(li);
+        });
+        socket.on("videoData", (data) => {
+            if (data.clientID !== clientID) {
+                if (!imageElements[data.clientID]) {
+                    const newImageElement = document.createElement('img');
+                    newImageElement.id = `receivedImage_${data.clientID}`;
+                    document.body.appendChild(newImageElement);
+                    imageElements[data.clientID] = newImageElement;
+                }
+                imageElements[data.clientID].src = data.imageData;
+            }
+        });
+        socket.on("messageToClient", (responseMessage) => {
+            console.log("messageToClient", responseMessage);
+
+            $message.innerText = responseMessage;
+        });
+        socket.on("connect_error", (err) => {
+            console.log(`connect_error due to ${err.message}`);
+        });
+        socket.on("disconnect", (reason) => {
+            console.log(`disconnect due to ${reason}`);
+            clearInterval(clientInterval);
+            $status.innerText = "Disconnected";
+            $transport.innerText = "N/A";
+        });
+    </script>
+</body>
+
+</html>
