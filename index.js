@@ -30,7 +30,8 @@ const httpsServer = createServer({
 
 const port = process.env.PORT || 3000;
 
-httpsServer.listen(port, () => {
+const ipv4Host = "0.0.0.0"
+httpsServer.listen(port, ipv4Host, () => {
     console.log(`server listening at https://localhost:${port}`);
 });
 
